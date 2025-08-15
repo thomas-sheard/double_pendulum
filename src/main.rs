@@ -3,6 +3,7 @@ use nannou::prelude::*;
 fn main() {
     nannou::app(model)
         .update(update)
+        //.loop_mode(LoopMode::rate_fps(30.0))
         .simple_window(view)
         .run();
 }
@@ -55,9 +56,9 @@ fn model(_app: &App) -> Model {
         a1: 0.0, // angular acceleration (m/s/s)
 
         // and for second (child) pendulum
-        l2: 0.0,
-        theta_2: 0.0,
-        m2: 0.0,
+        l2: 100.0,
+        theta_2: 1.0,
+        m2: 1.0,
         v2: 0.0,
         a2: 0.0,
 
@@ -77,23 +78,29 @@ fn ddot_thetas(model: &Model, theta_1: f32, theta_2: f32, dot_theta_1: f32, dot_
     let total_mass = model.m1 + model.m2;
 
     let sin_theta_1 = theta_1.sin();
-    let sin_theta_2 = theta_2.sin();
+    //let sin_theta_2 = theta_2.sin();
 
     let dtheta = theta_1 - theta_2;
 
     let sin_dtheta = dtheta.sin();
     let cos_dtheta = dtheta.cos();
 
-    let alpha = model.m1 + model.m2 * (sin_dtheta * sin_dtheta);
+    let denominator = 2.0 * model.m1 + model.m2 * (1.0 - (2.0 * dtheta).cos());
 
     // p1 acceleration
 
-    let a1 = - model.gravity * sin_theta_1;
+    let a1 = 
+        - ((model.gravity * 2.0 * total_mass * sin_theta_1) + (model.m2 * model.gravity * (theta_1 - 2.0 * theta_2).sin()) + (2.0 * sin_dtheta * model.m2 * (model.l2 * dot_theta_2 * dot_theta_2 + model.l1 * dot_theta_1 * dot_theta_1 * cos_dtheta))) / (model.l1 * denominator);
+        //- model.gravity * theta_1.sin();
+
         //-(sin_dtheta * (model.m2 * model.l1 * model.l1 * dot_theta_1 * cos_dtheta + model.m2 * model.l2 * dot_theta_1) - model.gravity * (total_mass * sin_theta_1 - model.m2 * sin_theta_2 * cos_dtheta)) / (model.l1 * alpha);
 
     // p2 acceleration
 
-    let a2 = - model.gravity * sin_theta_2;
+    let a2 = 
+        //- model.gravity * theta_2.sin();
+        (2.0 * sin_dtheta * (model.l1 * total_mass * dot_theta_1 * dot_theta_1) + (theta_1.cos() * model.gravity * total_mass) + (model.l2 * model.m2 * dot_theta_2 * dot_theta_2 * cos_dtheta)) / (model.l2 * denominator);
+        
         //(sin_dtheta * (total_mass * model.l1 * dot_theta_1 * dot_theta_1 + model.m2 * model.l2 * dot_theta_2 * dot_theta_2 * cos_dtheta) + model.gravity * (total_mass * sin_theta_1 * cos_dtheta - total_mass * sin_theta_2)) / (model.l2 * alpha);
 
     (a1, a2) // (a1, a2)
@@ -106,10 +113,11 @@ fn update(app: &App, model: &mut Model, _update: Update) {
 
     // rk4 implementation
      
-    let dt = app.duration.since_prev_update.as_secs_f32(); // accounts for variance in update rate
+    let dt = 2.0 * app.duration.since_prev_update.as_secs_f32(); // accounts for variance in update rate
 
     // current accelerations
     let k1: (f32, f32) = ddot_thetas(model, model.theta_1, model.theta_2, model.v1, model.v2);
+    println!("{}, {}", k1.0, k1.1);
     model.v1 += dt * k1.0;
     model.v2 += dt * k1.1;
 
