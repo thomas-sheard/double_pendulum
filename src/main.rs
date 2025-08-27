@@ -8,6 +8,7 @@ fn main() {
 }
 
 // store defining degrees of freedom as a state object
+
 #[derive(Copy, Clone)]
 struct State {
     theta_1: f32,
@@ -16,7 +17,7 @@ struct State {
     dot_theta_2: f32,
 }
 
-// implement scalar vector multiplication, division, and vector addition for rk4 
+// implement scalar vector multiplication, division, and vector addition on State for rk4 
 
 impl std::ops::Mul<f32> for State {
     type Output = Self;
@@ -57,23 +58,29 @@ impl std::ops::Add<State> for State {
     }
 }
 
-// for easier conversion between polar and cartesian
+// for easier conversion between polar and cartesian for drawing
+
 struct Cartesian {
+
     x: f32,
     y: f32,
+
 }
 
 fn to_cartesian(r: f32, theta: f32) -> Cartesian {
+    
     // polar to cartesian
+
     let x = r * theta.sin();
     let y = - r * theta.cos();
 
     Cartesian { x, y }
+
 }
 
 fn derivatives(state: &State, model: &Model) -> State {
 
-    // cache reused values for memory
+    // cache reused values to reduce memory calls
     
     let g = model.gravity;
     let m1 = model.m1;
@@ -84,7 +91,7 @@ fn derivatives(state: &State, model: &Model) -> State {
     let dot_theta_1 = state.dot_theta_1;
     let dot_theta_2 = state.dot_theta_2;
 
-    // cache calculated values for efficiency
+    // cache calculated values to reduce computation
 
     let mratio = m2 / m1;
     let mrat_plus = mratio + 1.0;
@@ -105,11 +112,17 @@ fn derivatives(state: &State, model: &Model) -> State {
 
     let num_1 = (mrat_plus * gamma * sin_theta_1) + (mratio * lratio * dot_theta_2 * dot_theta_2 * sin_dtheta) + (mratio * cos_dtheta * (dot_theta_1 * dot_theta_1 * sin_dtheta - gamma * sin_theta_2));
 
+    // pendulum 1 acceleration
+
     let ddot_theta_1 = - num_1 / denominator;
 
     let num_2 = mrat_plus * (dot_theta_1 * dot_theta_1 * sin_dtheta - gamma * sin_theta_2) + cos_dtheta * (mrat_plus * gamma * sin_theta_1 + mratio * lratio * dot_theta_2 * dot_theta_2 * sin_dtheta);
 
+    // pendulum 2 acceleration
+
     let ddot_theta_2 = num_2 / (lratio * denominator);
+
+    // return new values from initial state
 
     State { 
         theta_1: dot_theta_1,
@@ -122,10 +135,20 @@ fn derivatives(state: &State, model: &Model) -> State {
 
 fn rk4(state: &State, model: &Model, dt: f32) -> State {
 
+    // rk4 implementation
+    // essentially a weighted average of iterative euler's method steps
+
+    // k1 is equivalent to euler's method (poor performance)
+
     let k1 = derivatives(state, model) * dt;
+
+    // we then take the new state estimate that k1 gives and make another state estimate
+    // for what the derivatives would look like after half of the time step
 
     let k2_state = *state + k1 * 0.5;
     let k2 = derivatives(&k2_state, model) * dt;
+
+    // and then use the k2 estimate for k3... etc
 
     let k3_state = *state + k2 * 0.5;
     let k3 = derivatives(&k3_state, model) * dt;
@@ -133,21 +156,29 @@ fn rk4(state: &State, model: &Model, dt: f32) -> State {
     let k4_state = *state + k3;
     let k4 = derivatives(&k4_state, model) * dt;
 
+    // return new state from weighted averages
+
     *state + (k1 + k2 * 2.0 + k3 * 2.0 + k4) / 6.0
 }
 
 
 struct Model {
-    state: State,
+    state: State, // vector [theta_1, theta_2, dot_theta_1, dot_theta_2]
+
+    // arm lengths
 
     l1: f32,
     l2: f32,
+
+    // bob masses
 
     m1: f32,
     m2: f32,
 
     gravity: f32,
-    // dampening: f32,
+    // dampening: f32, // not implemented but would slow divergence and add friction
+
+    // a vector of max previous points used for tracing the path of the second pendulum
 
     path: Vec<Point2>,
     max_path_length: usize,
@@ -157,14 +188,21 @@ fn model(_app: &App) -> Model {
     Model {
 
         state: State {
+            //
             // initial displacements
+
             theta_1: 0.0,
             theta_2: 2.0,
 
             // initial velocities ('kick')
+
             dot_theta_1: 0.0,
             dot_theta_2: 0.0,
         },
+
+        // worth noting that smaller values make the physics feel more realistic (1m is more
+        // familiar than 100...) but whenever these are drawn we multiply by 100 to make them
+        // visible without changing the physics
 
         l1: 1.0,
         l2: 1.0,
@@ -175,24 +213,28 @@ fn model(_app: &App) -> Model {
         gravity: 10.0,
 
         path: Vec::new(),
-        max_path_length: 500,
+        max_path_length: 500, // determines trace decay
     }
 }
 
 fn update(app: &App, model: &mut Model, _update: Update) {
 
     // scalar on dt for visualisation speed
+
     let dt = 1.0 * app.duration.since_prev_update.as_secs_f32();
 
     // perform rk4 state update
-    model.state = rk4(&model.state, model, dt);
 
-    // print current angles
-    //println!("[{}, {}]", model.state.theta_1, model.state.theta_2);
+    model.state = rk4(&model.state, model, dt);
+    println!("[{}, {}]", model.state.theta_1, model.state.theta_2);
+
+    // store new point in path trace
 
     let p1 = to_cartesian(100.0 * model.l1, model.state.theta_1);
     let p2 = to_cartesian(100.0 * model.l2, model.state.theta_2);
     model.path.push(pt2(p1.x + p2.x, p1.y + p2.y));
+
+    // remove values over the length cap
 
     if model.path.len() > model.max_path_length {
         model.path.remove(0);
@@ -204,12 +246,13 @@ fn view(app: &App, model: &Model, frame: Frame) {
 
     let draw = app.draw();
 
+    // scalar for visibility
     let p1 = to_cartesian(100.0 * model.l1, model.state.theta_1);
     let p2 = to_cartesian(100.0 * model.l2, model.state.theta_2);
 
     draw.background().color(WHITESMOKE);
 
-    // draw trace first for layering
+    // draw trace first so it is behind
 
     draw.polyline()
         .color(CADETBLUE)
@@ -248,6 +291,8 @@ fn view(app: &App, model: &Model, frame: Frame) {
         .color(GRAY)
         .radius(7.0)
         .x_y(p1.x + p2.x, p1.y + p2.y);
+
+    // render
 
     draw.to_frame(app, &frame).unwrap();
 
