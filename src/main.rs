@@ -3,133 +3,200 @@ use nannou::prelude::*;
 fn main() {
     nannou::app(model)
         .update(update)
-        //.loop_mode(LoopMode::rate_fps(30.0))
         .simple_window(view)
-        .run();
+        .run()
 }
 
-// for easier conversions 
+// store defining degrees of freedom as a state object
+#[derive(Copy, Clone)]
+struct State {
+    theta_1: f32,
+    theta_2: f32,
+    dot_theta_1: f32,
+    dot_theta_2: f32,
+}
+
+// implement scalar vector multiplication, division, and vector addition for rk4 
+
+impl std::ops::Mul<f32> for State {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self {
+        Self {
+            theta_1: self.theta_1 * rhs,
+            theta_2: self.theta_2 * rhs,
+            dot_theta_1: self.dot_theta_1 * rhs,
+            dot_theta_2: self.dot_theta_2 * rhs,
+        }
+    }
+}
+
+impl std::ops::Div<f32> for State {
+    type Output = Self;
+
+    fn div(self, rhs: f32) -> Self {
+        Self {
+            theta_1: self.theta_1 / rhs,
+            theta_2: self.theta_2 / rhs,
+            dot_theta_1: self.dot_theta_1 / rhs,
+            dot_theta_2: self.dot_theta_2 / rhs,
+        }
+    }
+}
+
+impl std::ops::Add<State> for State {
+    type Output = Self;
+
+    fn add(self, other: State) -> Self {
+        Self {
+            theta_1: self.theta_1 + other.theta_1,
+            theta_2: self.theta_2 + other.theta_2,
+            dot_theta_1: self.dot_theta_1 + other.dot_theta_1,
+            dot_theta_2: self.dot_theta_2 + other.dot_theta_2,
+        }
+    }
+}
+
+// for easier conversion between polar and cartesian
 struct Cartesian {
     x: f32,
     y: f32,
 }
 
 fn to_cartesian(r: f32, theta: f32) -> Cartesian {
-    // polar to cartesian, with theta = 0 at the down (neutral) position
+    // polar to cartesian
     let x = r * theta.sin();
     let y = - r * theta.cos();
+
     Cartesian { x, y }
 }
 
+fn derivatives(state: &State, model: &Model) -> State {
 
-// state variables
+    // cache reused values for memory
+    
+    let g = model.gravity;
+    let m1 = model.m1;
+    let m2 = model.m2;
+    let l1 = model.l1;
+    let l2 = model.l2;
 
-struct Model {
+    let dot_theta_1 = state.dot_theta_1;
+    let dot_theta_2 = state.dot_theta_2;
 
-    l1: f32,
-    theta_1: f32,
-    m1: f32,
-    v1: f32,
-    a1: f32,
+    // cache calculated values for efficiency
 
-    l2: f32,
-    theta_2: f32,
-    m2: f32,
-    v2: f32,
-    a2: f32,
+    let mratio = m2 / m1;
+    let mrat_plus = mratio + 1.0;
+    let lratio = l2 / l1;
+    let gamma = g / l1;
+    let dtheta = state.theta_1 - state.theta_2;
 
-    gravity: f32,
-    //dampening: f32, // TODO: implement decay
-}
-
-// instantiate
-fn model(_app: &App) -> Model {
-
-    Model {
-
-        // all necessary values:
-
-        l1: 100.0, // length (m)
-        theta_1: 0.5, // angle (radians)
-        m1: 1.0, // mass (kg)
-        v1: 0.0, // angular velocity (m/s)
-        a1: 0.0, // angular acceleration (m/s/s)
-
-        // and for second (child) pendulum
-        l2: 100.0,
-        theta_2: 1.0,
-        m2: 1.0,
-        v2: 0.0,
-        a2: 0.0,
-
-        // constants
-
-        gravity: 10.0, // (m/s/s)
-        //dampening: 0.001,
-
-    }
-
-}
-
-fn ddot_thetas(model: &Model, theta_1: f32, theta_2: f32, dot_theta_1: f32, dot_theta_2: f32) -> (f32, f32) {
-
-    // cache reused values to reduce computation
-
-    let total_mass = model.m1 + model.m2;
-
-    let sin_theta_1 = theta_1.sin();
-    //let sin_theta_2 = theta_2.sin();
-
-    let dtheta = theta_1 - theta_2;
+    let sin_theta_1 = state.theta_1.sin();
+    let sin_theta_2 = state.theta_2.sin();
 
     let sin_dtheta = dtheta.sin();
     let cos_dtheta = dtheta.cos();
 
-    let denominator = 2.0 * model.m1 + model.m2 * (1.0 - (2.0 * dtheta).cos());
+    let denominator = 1.0 + (mratio * sin_dtheta * sin_dtheta);
 
-    // p1 acceleration
+    // equations from uni edinburgh (page 30-31):
+    // https://www2.ph.ed.ac.uk/~dmarendu/MVP/DoublePendulumTutorial.pdf
 
-    let a1 = 
-        - ((model.gravity * 2.0 * total_mass * sin_theta_1) + (model.m2 * model.gravity * (theta_1 - 2.0 * theta_2).sin()) + (2.0 * sin_dtheta * model.m2 * (model.l2 * dot_theta_2 * dot_theta_2 + model.l1 * dot_theta_1 * dot_theta_1 * cos_dtheta))) / (model.l1 * denominator);
-        //- model.gravity * theta_1.sin();
+    let num_1 = (mrat_plus * gamma * sin_theta_1) + (mratio * lratio * dot_theta_2 * dot_theta_2 * sin_dtheta) + (mratio * cos_dtheta * (dot_theta_1 * dot_theta_1 * sin_dtheta - gamma * sin_theta_2));
 
-        //-(sin_dtheta * (model.m2 * model.l1 * model.l1 * dot_theta_1 * cos_dtheta + model.m2 * model.l2 * dot_theta_1) - model.gravity * (total_mass * sin_theta_1 - model.m2 * sin_theta_2 * cos_dtheta)) / (model.l1 * alpha);
+    let ddot_theta_1 = - num_1 / denominator;
 
-    // p2 acceleration
+    let num_2 = mrat_plus * (dot_theta_1 * dot_theta_1 * sin_dtheta - gamma * sin_theta_2) + cos_dtheta * (mrat_plus * gamma * sin_theta_1 + mratio * lratio * dot_theta_2 * dot_theta_2 * sin_dtheta);
 
-    let a2 = 
-        //- model.gravity * theta_2.sin();
-        (2.0 * sin_dtheta * (model.l1 * total_mass * dot_theta_1 * dot_theta_1) + (theta_1.cos() * model.gravity * total_mass) + (model.l2 * model.m2 * dot_theta_2 * dot_theta_2 * cos_dtheta)) / (model.l2 * denominator);
-        
-        //(sin_dtheta * (total_mass * model.l1 * dot_theta_1 * dot_theta_1 + model.m2 * model.l2 * dot_theta_2 * dot_theta_2 * cos_dtheta) + model.gravity * (total_mass * sin_theta_1 * cos_dtheta - total_mass * sin_theta_2)) / (model.l2 * alpha);
+    let ddot_theta_2 = num_2 / (lratio * denominator);
 
-    (a1, a2) // (a1, a2)
+    State { 
+        theta_1: dot_theta_1,
+        theta_2: dot_theta_2,
+        dot_theta_1: ddot_theta_1,
+        dot_theta_2: ddot_theta_2,
+    }
 
 }
 
-// runs once a frame (defaults to 60?)
+fn rk4(state: &State, model: &Model, dt: f32) -> State {
+
+    let k1 = derivatives(state, model) * dt;
+
+    let k2_state = *state + k1 * 0.5;
+    let k2 = derivatives(&k2_state, model) * dt;
+
+    let k3_state = *state + k2 * 0.5;
+    let k3 = derivatives(&k3_state, model) * dt;
+    
+    let k4_state = *state + k3;
+    let k4 = derivatives(&k4_state, model) * dt;
+
+    *state + (k1 + k2 * 2.0 + k3 * 2.0 + k4) / 6.0
+}
+
+
+struct Model {
+    state: State,
+
+    l1: f32,
+    l2: f32,
+
+    m1: f32,
+    m2: f32,
+
+    gravity: f32,
+    // dampening: f32,
+
+    path: Vec<Point2>,
+    max_path_length: usize,
+}
+
+fn model(_app: &App) -> Model {
+    Model {
+
+        state: State {
+            // initial displacements
+            theta_1: 0.0,
+            theta_2: 2.0,
+
+            // initial velocities ('kick')
+            dot_theta_1: 0.0,
+            dot_theta_2: 0.0,
+        },
+
+        l1: 1.0,
+        l2: 1.0,
+
+        m1: 1.0,
+        m2: 1.0,
+
+        gravity: 10.0,
+
+        path: Vec::new(),
+        max_path_length: 500,
+    }
+}
 
 fn update(app: &App, model: &mut Model, _update: Update) {
 
-    // rk4 implementation
-     
-    let dt = 2.0 * app.duration.since_prev_update.as_secs_f32(); // accounts for variance in update rate
+    // scalar on dt for visualisation speed
+    let dt = 1.0 * app.duration.since_prev_update.as_secs_f32();
 
-    // current accelerations
-    let k1: (f32, f32) = ddot_thetas(model, model.theta_1, model.theta_2, model.v1, model.v2);
-    println!("{}, {}", k1.0, k1.1);
-    model.v1 += dt * k1.0;
-    model.v2 += dt * k1.1;
+    // perform rk4 state update
+    model.state = rk4(&model.state, model, dt);
 
-    model.theta_1 += dt * model.v1;
-    model.theta_2 += dt * model.v2;
-        
-//    let k2: (f32, f32) = ddot_thetas(model,)
-//        // new projected velocity 1
-//        model.v1 + (dt / 2.0) * k1.0 ,
-//        //
-//    )
-    
+    // print current angles
+    //println!("[{}, {}]", model.state.theta_1, model.state.theta_2);
+
+    let p1 = to_cartesian(100.0 * model.l1, model.state.theta_1);
+    let p2 = to_cartesian(100.0 * model.l2, model.state.theta_2);
+    model.path.push(pt2(p1.x + p2.x, p1.y + p2.y));
+
+    if model.path.len() > model.max_path_length {
+        model.path.remove(0);
+    }
 
 }
 
@@ -137,12 +204,17 @@ fn view(app: &App, model: &Model, frame: Frame) {
 
     let draw = app.draw();
 
-    // cartesian tuples for the endpoint of each pendulum
-    // stored relative to each pendulum's origin 
-    let p1 = to_cartesian(model.l1, model.theta_1);
-    let p2 = to_cartesian(model.l2, model.theta_2); 
+    let p1 = to_cartesian(100.0 * model.l1, model.state.theta_1);
+    let p2 = to_cartesian(100.0 * model.l2, model.state.theta_2);
 
     draw.background().color(WHITESMOKE);
+
+    // draw trace first for layering
+
+    draw.polyline()
+        .color(CADETBLUE)
+        .stroke_weight(2.0)
+        .points(model.path.iter().cloned());
 
     // origin
     
@@ -180,4 +252,3 @@ fn view(app: &App, model: &Model, frame: Frame) {
     draw.to_frame(app, &frame).unwrap();
 
 }
-
