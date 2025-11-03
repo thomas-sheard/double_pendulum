@@ -188,7 +188,7 @@ fn model(_app: &App) -> Model {
     Model {
 
         state: State {
-            //
+            
             // initial displacements
 
             theta_1: 0.0,
