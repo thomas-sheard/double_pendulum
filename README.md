@@ -1,6 +1,6 @@
 # A double pendulum simulation in Rust
 
-A project I've always wanted to do. This is the baseline simulation, which will be used for other visualisation like plotting Lissajous curves (and maybe listening to them), and state visualisations in the angle space. Stay tuned!
+A project I've always wanted to do. This is the baseline simulation, which will be used for other visualisation like plotting Lissajous curves (and maybe listening to them!), and state visualisations in the angle space. Stay tuned!
 
 ## Installation / Running
 Not entirely built with this in mind, but if you'd like to run this, make sure you have `cargo` installed and (for Linux) run
@@ -12,7 +12,7 @@ First time compilation in `nannou` can take a while, but subsequent ones will be
 Use `esc` to stop the simulation.
 
 ## Changing parameters
-The initial angles are hard coded, but to experiment with different initial positions / velocities you can change lines 190-201:
+The initial angles are hard coded, but to experiment with different initial positions / velocities you can change lines 190-201 of `src/main.rs`:
 ```
   state: State {
 
