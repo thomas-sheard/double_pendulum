@@ -1,0 +1,1 @@
+A project I've always wanted to do. This is the baseline simulation, which will be used for other visualisation like plotting Lissajous curves (and maybe listening to them), and state visualisations in the $$\theta - \phi$$ plane. Stay tuned!
